@@ -1,22 +1,25 @@
 package pl.edu.agh.sp.tsa
 
+import java.text.SimpleDateFormat
+
 import org.apache.spark.SparkConf
 import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.streaming.twitter.TwitterUtils
 import org.apache.spark.streaming.{Durations, StreamingContext}
 import pl.edu.agh.sp.tsa.util.ConfigLoader
 import redis.clients.jedis.Jedis
-import twitter4j.Status
 import twitter4j.auth.OAuthAuthorization
 import twitter4j.conf.ConfigurationBuilder
+import twitter4j.{GeoLocation, Place, Status}
 
 object TweetAnalyzer {
   def main(args: Array[String]): Unit = {
     val ssc = StreamingContext.getActiveOrCreate(createStreamingContext)
     val tweets = TwitterUtils.createStream(ssc, getTwitterAuth)
 
-    val analysedTweets = tweets.filter(hasGeoLocation)
-    .map(predictSentiment)
+    val analysedTweets = tweets
+      .filter(hasGeoLocationOrPlace)
+      .map(predictSentiment)
 
     analysedTweets.foreachRDD { rdd =>
       if (rdd != null && !rdd.isEmpty() && !rdd.partitions.isEmpty) {
@@ -50,33 +53,40 @@ object TweetAnalyzer {
   }
 
   def getTwitterAuth: Some[OAuthAuthorization] = {
-//    System.setProperty("twitter4j.oauth.consumerKey", "xIX9eIFYJSkpIUS6jUzpuA6Ah")
-//    System.setProperty("twitter4j.oauth.consumerSecret", "xcNjwLLz4tZ7a6wY5U4x6FMsltGb2ziZ8hn2dB9sKxKizss5xO")
-//    System.setProperty("twitter4j.oauth.accessToken", "853564756808146944-gpiupUsq8xj6xwwXKjwC0ABEvt9zHij")
-//    System.setProperty("twitter4j.oauth.accessTokenSecret", "7dShyiotO0YMhOYEW9cbzSzS7JQ1mkjmRWiXCaHu2z7lY")
-
     val conf = new ConfigurationBuilder()
-        conf.setOAuthConsumerKey(ConfigLoader.consumerKey)
-        conf.setOAuthConsumerSecret(ConfigLoader.consumerSecret)
-        conf.setOAuthAccessToken(ConfigLoader.accessToken)
-        conf.setOAuthAccessTokenSecret(ConfigLoader.accessTokenSecret)
+    conf.setOAuthConsumerKey(ConfigLoader.consumerKey)
+    conf.setOAuthConsumerSecret(ConfigLoader.consumerSecret)
+    conf.setOAuthAccessToken(ConfigLoader.accessToken)
+    conf.setOAuthAccessTokenSecret(ConfigLoader.accessTokenSecret)
     val oAuth = Some(new OAuthAuthorization(conf.build()))
     oAuth
   }
 
 
   def predictSentiment(status: Status): (Long, String, String, Int, Double, Double, String, String) = {
+    val format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    val geoLoc = Option(status.getGeoLocation).getOrElse(getCoordinatesFromTweetBoundingBox(status.getPlace))
     (status.getId,
       status.getUser.getScreenName,
       status.getText,
       0,
-      status.getGeoLocation.getLatitude,
-      status.getGeoLocation.getLongitude,
+      geoLoc.getLatitude,
+      geoLoc.getLongitude,
       status.getUser.getOriginalProfileImageURL,
-      status.getCreatedAt.formatted("EE MMM dd HH:mm:ss ZZ yyyy"))
+      format.format(status.getCreatedAt))
   }
 
-  def hasGeoLocation(status: Status): Boolean = {
-    status.getGeoLocation != null
+  def hasGeoLocationOrPlace(status: Status): Boolean = {
+    status.getGeoLocation != null || status.getPlace != null
+  }
+
+  def getCoordinatesFromTweetBoundingBox(place: Place): GeoLocation = {
+    val leftBottom = place.getBoundingBoxCoordinates.apply(0).apply(0)
+    val rightBottom = place.getBoundingBoxCoordinates.apply(0).apply(1)
+    val leftTop = place.getBoundingBoxCoordinates.apply(0).apply(3)
+    val long = (leftBottom.getLongitude + leftTop.getLongitude) / 2
+    val lat = (leftBottom.getLatitude + rightBottom.getLatitude) / 2
+
+    new GeoLocation(lat, long)
   }
 }
