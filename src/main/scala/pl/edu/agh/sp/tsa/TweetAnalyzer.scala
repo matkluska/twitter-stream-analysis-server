@@ -35,7 +35,6 @@ object TweetAnalyzer {
       }
     }
 
-
     ssc.start()
     ssc.awaitTerminationOrTimeout(60 * 1000 * 5)
   }

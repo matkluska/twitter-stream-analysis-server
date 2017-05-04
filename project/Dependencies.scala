@@ -13,6 +13,7 @@ object Dependencies {
     "org.apache.spark" %% "spark-sql" % sparkVersion,
     "org.apache.spark" %% "spark-mllib" % sparkVersion,
     "org.apache.bahir" %% "spark-streaming-twitter" % sparkVersion,
+    "com.sparkjava" % "spark-core" % "2.5.5",
     "redis.clients" % "jedis" % jedisVersion
   )
 }
