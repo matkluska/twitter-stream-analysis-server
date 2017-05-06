@@ -1,7 +1,7 @@
 package pl.edu.agh.sp.tsa
 
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import pl.edu.agh.sp.tsa.model.Tweet
 import spark.{Request, Response, Route, Spark}
 
@@ -23,9 +23,9 @@ object HdfsTweetAnalyzer {
   def main(args: Array[String]): Unit = {
     Spark.get("/", new Route {
       override def handle(request: Request, response: Response): AnyRef = {
-        val hashtags: List[String] = Option(request.queryParamsValues("hashtags"))
+        val hashtags: Set[String] = Option(request.queryParamsValues("hashtags"))
           .getOrElse(Array[String]())
-          .toList
+          .toSet
 
         val numberOfTweets: Int = Option(request.queryParams("numberOfTweets"))
           .getOrElse("10")
@@ -39,23 +39,43 @@ object HdfsTweetAnalyzer {
     })
   }
 
-  def getTopTweets(hashtags: List[String], numberOfTweets: Int): List[Tweet] = {
+  private def getTopTweets(hashtags: Set[String], numberOfTweets: Int): List[Tweet] = {
     dataFrame
       .select(
         "text",
         "quoted_status.retweet_count",
-        "entities.hashtags"
+        "quoted_status.favorite_count",
+        "entities.hashtags.text",
+        "quoted_status.user.name"
       )
-      //.filter() TODO filter against given hashtags
+      .filter(row => hashtags.isEmpty || areCommonHashtags(row, hashtags))
       .orderBy(desc("retweet_count"))
       .limit(numberOfTweets)
       .collect()
-      .map(row => {
-        val text = row.getString(0)
-        val retweetCount = row.getLong(1)
-        val hashtags = row.getAs[mutable.WrappedArray[String]](2).toList
-        new Tweet(text, retweetCount, hashtags)
-      })
+      .map(mapRowToTweet)
       .toList
+  }
+
+  private def areCommonHashtags(row: Row, hashtags: Set[String]): Boolean = {
+    row
+      .getAs[mutable.WrappedArray[String]](2)
+      .toSet
+      .intersect(hashtags)
+      .nonEmpty
+  }
+
+  private def mapRowToTweet(row: Row): Tweet = {
+    val text: String = row.getString(0)
+    val retweetCount: Long = Option(row.get(1)) match {
+      case Some(value) => value.asInstanceOf[Long]
+      case None => 0L
+    }
+    val favoriteCount: Long = Option(row.get(2)) match {
+      case Some(value) => value.asInstanceOf[Long]
+      case None => 0L
+    }
+    val hashtags: List[String] = row.getAs[mutable.WrappedArray[String]](3).toList
+    val username: String = row.getString(4)
+    new Tweet(text, retweetCount, favoriteCount, hashtags, username)
   }
 }

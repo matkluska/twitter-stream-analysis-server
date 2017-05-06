@@ -2,16 +2,16 @@ package pl.edu.agh.sp.tsa.model
 
 import scala.util.parsing.json.{JSONArray, JSONObject}
 
-class Tweet(var text: String, var retweetCount: Long, var hashtags: List[String]) {
+class Tweet(var text: String, var retweetCount: Long, var favoriteCount: Long, var hashtags: List[String], var username: String) {
 
   def toJSONObject: JSONObject = {
-    val map: Map[String, Any] = Map(
+    JSONObject.apply(Map(
       "text" -> text,
-      "retweetCount" -> retweetCount
-//      "hashtags" -> JSONArray.apply(hashtags)
-    )
-
-    JSONObject.apply(map)
+      "retweetCount" -> retweetCount,
+      "favoriteCount" -> favoriteCount,
+      "hashtags" -> JSONArray.apply(hashtags),
+      "username" -> username
+    ))
   }
 
 }
