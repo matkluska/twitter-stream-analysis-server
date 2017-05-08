@@ -3,37 +3,37 @@ package pl.edu.agh.sp.tsa
 import java.text.SimpleDateFormat
 
 import org.apache.spark.SparkConf
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.mllib.classification.NaiveBayesModel
+import org.apache.spark.mllib.feature.HashingTF
 import org.apache.spark.serializer.KryoSerializer
+import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.twitter.TwitterUtils
 import org.apache.spark.streaming.{Durations, StreamingContext}
+import pl.edu.agh.sp.tsa.machine_learning.{MLibSentimentAnalyzer, SparkNaiveBayesModelCreator}
+import pl.edu.agh.sp.tsa.model.TweetWithSentiment
 import pl.edu.agh.sp.tsa.util.ConfigLoader
 import redis.clients.jedis.Jedis
 import twitter4j.auth.OAuthAuthorization
 import twitter4j.conf.ConfigurationBuilder
 import twitter4j.{GeoLocation, Place, Status}
 
+import scala.util.parsing.json.JSONFormat
+
 object TweetAnalyzer {
+  def hashingTF = new HashingTF()
+
   def main(args: Array[String]): Unit = {
     val ssc = StreamingContext.getActiveOrCreate(createStreamingContext)
+    val naiveBayesModel = NaiveBayesModel.load(ssc.sparkContext, ConfigLoader.naiveBayesModelPath)
+    val stopWords = ssc.sparkContext.broadcast(SparkNaiveBayesModelCreator.loadStopWordsFromFile())
     val tweets = TwitterUtils.createStream(ssc, getTwitterAuth)
 
     val analysedTweets = tweets
       .filter(hasGeoLocationOrPlace)
-      .map(predictSentiment)
+      .map(status => predictSentiment(status, naiveBayesModel, stopWords))
 
-    analysedTweets.foreachRDD { rdd =>
-      if (rdd != null && !rdd.isEmpty() && !rdd.partitions.isEmpty) {
-        rdd.foreach {
-          case (id, screenName, text, sentiment, latitude, longitude, profileURL, date) =>
-            val tuple = (id, screenName, text, sentiment, latitude, longitude, profileURL, date)
-            val jedis = new Jedis("localhost", 6379)
-            val write = tuple.productIterator.mkString("~|~")
-            val pipeline = jedis.pipelined()
-            pipeline.publish("TweetStream", write)
-            pipeline.sync()
-        }
-      }
-    }
+    publishToRedis(analysedTweets)
 
     ssc.start()
     ssc.awaitTerminationOrTimeout(60 * 1000 * 5)
@@ -42,7 +42,7 @@ object TweetAnalyzer {
   def createStreamingContext(): StreamingContext = {
     val conf = new SparkConf()
       .setAppName("Twitter Stream Analysis")
-      .setMaster("local[2]")
+      .setMaster("local[4]")
       .set("spark.serializer", classOf[KryoSerializer].getCanonicalName)
       .set("spark.eventLog.enabled", "true")
       .set("spark.streaming.unpersist", "true")
@@ -61,18 +61,22 @@ object TweetAnalyzer {
     oAuth
   }
 
-
-  def predictSentiment(status: Status): (Long, String, String, Int, Double, Double, String, String) = {
+  def predictSentiment(status: Status, model: NaiveBayesModel, stopWords: Broadcast[List[String]]): TweetWithSentiment = {
     val format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    val normalizedSentiment = MLibSentimentAnalyzer.computeSentiment(status, model, stopWords)
     val geoLoc = Option(status.getGeoLocation).getOrElse(getCoordinatesFromTweetBoundingBox(status.getPlace))
-    (status.getId,
+    new TweetWithSentiment(status.getId,
       status.getUser.getScreenName,
       status.getText,
-      0,
+      normalizedSentiment,
       geoLoc.getLatitude,
       geoLoc.getLongitude,
       status.getUser.getOriginalProfileImageURL,
       format.format(status.getCreatedAt))
+  }
+
+  def isTweetInEnglish(status: Status): Boolean = {
+    status.getLang == "en" && status.getUser.getLang == "en"
   }
 
   def hasGeoLocationOrPlace(status: Status): Boolean = {
@@ -87,5 +91,22 @@ object TweetAnalyzer {
     val lat = (leftBottom.getLatitude + rightBottom.getLatitude) / 2
 
     new GeoLocation(lat, long)
+  }
+
+  def publishToRedis(analysedTweets: DStream[TweetWithSentiment]): Unit = {
+    val redisHost = ConfigLoader.redisHost
+    val redisPort = ConfigLoader.redisPort
+    analysedTweets.foreachRDD { rdd =>
+      if (rdd != null && !rdd.isEmpty() && !rdd.partitions.isEmpty) {
+        rdd.foreach {
+          tweet =>
+            val jedis = new Jedis(redisHost, redisPort)
+            val writable = tweet.toJSONObject.toString(JSONFormat.defaultFormatter)
+            val pipeline = jedis.pipelined()
+            pipeline.publish("TweetStream", writable)
+            pipeline.sync()
+        }
+      }
+    }
   }
 }

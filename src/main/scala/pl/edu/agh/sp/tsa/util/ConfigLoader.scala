@@ -13,4 +13,10 @@ object ConfigLoader {
   val accessToken: String = config.getString("ACCESS_TOKEN")
   val accessTokenSecret: String = config.getString("ACCESS_TOKEN_SECRET")
 
+  val naiveBayesModelPath: String = config.getString("NAIVE_BAYES_MODEL_CONF")
+  val trainingDataPath: String = config.getString("TRAINING_DATA_PATH")
+
+  val redisHost: String = config.getString("REDIS_HOST")
+  val redisPort: Int = config.getInt("REDIS_PORT")
+
 }
