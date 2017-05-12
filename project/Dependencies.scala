@@ -14,6 +14,7 @@ object Dependencies {
     "org.apache.spark" %% "spark-mllib" % sparkVersion,
     "org.apache.bahir" %% "spark-streaming-twitter" % sparkVersion,
     "com.sparkjava" % "spark-core" % "2.5.5",
-    "redis.clients" % "jedis" % jedisVersion
+    "redis.clients" % "jedis" % jedisVersion,
+    "com.github.nscala-time" %% "nscala-time" % "2.16.0"
   )
 }

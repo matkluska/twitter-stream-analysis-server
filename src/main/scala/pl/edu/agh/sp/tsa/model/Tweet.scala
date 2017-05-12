@@ -1,15 +1,33 @@
 package pl.edu.agh.sp.tsa.model
 
-import scala.util.parsing.json.{JSONArray, JSONObject}
+import scala.util.parsing.json.JSONObject
 
-class Tweet(var text: String, var retweetCount: Long, var favoriteCount: Long, var hashtags: List[String]) {
+/**
+  * A class to represent a ''tweet'' from HDFS
+  *
+  * @author Mateusz Nowak
+  * @param id       tweet ID
+  * @param username tweet author name
+  */
+class Tweet(var id: String, var username: String) {
 
+  /**
+    * A method which convert the class instance to JSONObject
+    *
+    * JSON format:
+    * {{{
+    * {
+    *   "id": string,
+    *   "username": string,
+    * }
+    * }}}
+    *
+    * @return JSONObject
+    */
   def toJSONObject: JSONObject = {
     JSONObject.apply(Map(
-      "text" -> text,
-      "retweetCount" -> retweetCount,
-      "favoriteCount" -> favoriteCount,
-      "hashtags" -> JSONArray.apply(hashtags)
+      "id" -> id,
+      "username" -> username
     ))
   }
 

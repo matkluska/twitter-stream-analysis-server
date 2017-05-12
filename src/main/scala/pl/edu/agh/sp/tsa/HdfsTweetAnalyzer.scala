@@ -2,7 +2,10 @@ package pl.edu.agh.sp.tsa
 
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.joda.time.DateTime
+import org.joda.time.format.DateTimeFormat
 import pl.edu.agh.sp.tsa.model.Tweet
+import pl.edu.agh.sp.tsa.util.ConfigLoader
 import spark._
 
 import scala.collection.mutable
@@ -18,12 +21,15 @@ object HdfsTweetAnalyzer {
   private val dataFrame: DataFrame = sparkSession
     .sqlContext
     .read
-    .json("hdfs://0.0.0.0:9000/user/flume/tweets")
+    .json(ConfigLoader.hdfsHost + ConfigLoader.hdfsTweetsPath)
+
+  private val dtf = DateTimeFormat.forPattern("EEE MMM dd HH:mm:ss Z yyyy")
 
   def main(args: Array[String]): Unit = {
     Spark.after(new Filter {
       override def handle(request: Request, response: Response): Unit = {
         response.header("Access-Control-Allow-Origin", "*")
+        response.`type`("application/json")
       }
     })
 
@@ -34,10 +40,14 @@ object HdfsTweetAnalyzer {
           .toSet
 
         val numberOfTweets: Int = Option(request.queryParams("numberOfTweets"))
-          .getOrElse("15")
+          .getOrElse("10")
           .toInt
 
-        val tweets: List[JSONObject] = getTopTweets(hashtags, numberOfTweets).map(_.toJSONObject)
+        val period: Int = Option(request.queryParams("period"))
+          .getOrElse("0")
+          .toInt
+
+        val tweets: List[JSONObject] = getTopTweets(hashtags, numberOfTweets, period).map(_.toJSONObject)
         JSONArray.apply(tweets).toString(JSONFormat.defaultFormatter)
       }
     })
@@ -67,14 +77,15 @@ object HdfsTweetAnalyzer {
       .toMap[String, Long]
   }
 
-  private def getTopTweets(hashtags: Set[String], numberOfTweets: Int): List[Tweet] = {
+  private def getTopTweets(hashtags: Set[String], numberOfTweets: Int, period: Int): List[Tweet] = {
     dataFrame
       .select(
-        "text",
-        "quoted_status.retweet_count",
-        "quoted_status.favorite_count",
-        "entities.hashtags.text"
+        "user.screen_name",
+        "id_str",
+        "entities.hashtags.text",
+        "created_at"
       )
+      .filter(row => period == 0 || matchPeriod(row, period))
       .filter(row => hashtags.isEmpty || areCommonHashtags(row, hashtags))
       .orderBy(desc("retweet_count"))
       .limit(numberOfTweets)
@@ -85,23 +96,26 @@ object HdfsTweetAnalyzer {
 
   private def areCommonHashtags(row: Row, hashtags: Set[String]): Boolean = {
     row
-      .getAs[mutable.WrappedArray[String]](3)
+      .getAs[mutable.WrappedArray[String]](2)
       .toSet
       .intersect(hashtags)
       .nonEmpty
   }
 
+  private def matchPeriod(row: Row, period: Int): Boolean = {
+    DateTime
+      .parse(row.getString(3), dtf)
+      .isAfter(
+        DateTime
+          .now()
+          .minusMinutes(period)
+          .getMillis
+      )
+  }
+
   private def mapRowToTweet(row: Row): Tweet = {
-    val text: String = row.getString(0)
-    val retweetCount: Long = Option(row.get(1)) match {
-      case Some(value) => value.asInstanceOf[Long]
-      case None => 0L
-    }
-    val favoriteCount: Long = Option(row.get(2)) match {
-      case Some(value) => value.asInstanceOf[Long]
-      case None => 0L
-    }
-    val hashtags: List[String] = row.getAs[mutable.WrappedArray[String]](3).toList
-    new Tweet(text, retweetCount, favoriteCount, hashtags)
+    val username: String = row.getString(0)
+    val id: String = row.getString(1)
+    new Tweet(id, username)
   }
 }

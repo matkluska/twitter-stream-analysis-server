@@ -19,4 +19,7 @@ object ConfigLoader {
   val redisHost: String = config.getString("REDIS_HOST")
   val redisPort: Int = config.getInt("REDIS_PORT")
 
+  val hdfsHost: String = config.getString("HDFS_HOST")
+  val hdfsTweetsPath: String = config.getString("HDFS_TWEETS_PATH")
+
 }
