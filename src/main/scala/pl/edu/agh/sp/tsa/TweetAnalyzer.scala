@@ -36,7 +36,7 @@ object TweetAnalyzer {
     publishToRedis(analysedTweets)
 
     ssc.start()
-    ssc.awaitTerminationOrTimeout(60 * 1000 * 5)
+    ssc.awaitTerminationOrTimeout(60 * 1000 * 15)
   }
 
   def createStreamingContext(): StreamingContext = {
@@ -76,6 +76,7 @@ object TweetAnalyzer {
   }
 
   def isTweetInEnglish(status: Status): Boolean = {
+    status.getUser.getScreenName
     status.getLang == "en" && status.getUser.getLang == "en"
   }
 
