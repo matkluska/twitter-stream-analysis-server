@@ -12,9 +12,15 @@ import pl.edu.agh.sp.tsa.util.ConfigLoader
 import scala.io.Source
 
 /**
-  * Created by mateusz on 02/05/17.
+  * An object responsible for creating Spark Naive Bayes Model which should has ability to predict tweet sentiment.
+  *
+  * @author Mateusz Kluska
   */
 object SparkNaiveBayesModelCreator {
+  /** Starts Spark Naive Bayes Model creation
+    *
+    * @param args not used
+    */
   def main(args: Array[String]): Unit = {
     val spark = getOrCreateSparkSession()
 
@@ -23,6 +29,12 @@ object SparkNaiveBayesModelCreator {
     createAndSaveNaiveBayesClassifier(stopWordsBroadcast)
   }
 
+  /**
+    * Create or get existing Spark Session.
+    * Here could be configure spark cluster, we set local processor with four cores, but it could much more efficient machine
+    *
+    * @return configured Spark Session object
+    */
   def getOrCreateSparkSession(): SparkSession = {
     val conf = new SparkConf()
       .setAppName(this.getClass.getSimpleName)
@@ -34,10 +46,24 @@ object SparkNaiveBayesModelCreator {
       .getOrCreate()
   }
 
+  /**
+    * Load stop words from file, and converted it to list of strings
+    *
+    * @return list of stop words
+    */
   def loadStopWordsFromFile(): List[String] = {
     Source.fromInputStream(getClass.getResourceAsStream("/NLTK_english_stop_words.txt")).getLines().toList
   }
 
+  /**
+    * Create, train Naive Bayes Model and save it to file which path is set in app.conf under 'NAIVE_BAYES_MODEL_CONF' label.
+    * Method used machine learning ideas like text frequency vector, labeling.
+    * Created model is trained with lambda parameter set to 1.0 and
+    * data from file which path is set in app.conf under 'TRAINING_DATA_PATH' label.
+    *
+    *
+    * @param stopWordsBroadcast shared list of english stop words. Taken from NLTK
+    */
   def createAndSaveNaiveBayesClassifier(stopWordsBroadcast: Broadcast[List[String]]): Unit = {
     val tweets = loadTrainOrTestDataFile(ConfigLoader.trainingDataPath)
     val hashingTF = new HashingTF()
@@ -54,6 +80,13 @@ object SparkNaiveBayesModelCreator {
     naiveBayesModel.save(getOrCreateSparkSession().sparkContext, ConfigLoader.naiveBayesModelPath)
   }
 
+  /**
+    * Load train or test data which should be in csv format and get only valuable information which are sentiment and tweet text
+    * We used training data from www.sentiment140.com site
+    *
+    * @param filePath absolute path for file with data
+    * @return
+    */
   def loadTrainOrTestDataFile(filePath: String): DataFrame = {
     val spark = getOrCreateSparkSession()
 
